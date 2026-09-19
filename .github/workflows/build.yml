@@ -23,7 +23,7 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.22.2' # 안정적인 플러터 버전 지정
+          flutter-version: '3.47.5' # 안정적인 플러터 버전 지정
           channel: 'stable'
           cache: true
 
