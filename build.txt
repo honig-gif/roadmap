@@ -1,0 +1,15 @@
+git add .
+git commit -m "Add WebView screen connecting to web service"
+git push origin main
+
+⚙️ 2단계: 깃허브에서 빌드 완료 확인하기
+본인의 GitHub 레포지토리 페이지로 접속합니다.
+상단 메뉴의 [Actions] 탭을 클릭합니다.
+방금 푸시한 커밋 메시지("Add WebView screen...")로 실행된 워크플로우를 클릭합니다.
+빌드가 완료될 때까지 잠시 기다립니다(보통 1~3분 소요, 초록색 체크표시가 뜨면 성공!).
+📥 3단계: APK 다운로드 및 스마트폰 구동하기
+빌드가 성공적으로 끝나면 깃허브에서 테스트용 앱 파일을 내려받을 수 있습니다.
+빌드 상세 페이지 화면을 맨 아래로 스크롤합니다.
+Artifacts 섹션에 있는 app-release를 클릭하여 ZIP 파일을 다운로드합니다.
+다운로드한 ZIP 파일의 압축을 풀면 app-release.apk 파일이 나옵니다.
+이 APK 파일을 안드로이드 스마트폰으로 옮겨서 설치하고 실행하시면, 앱 안에 기존 웹 서비스가 웹뷰로 멋지게 뜨는 것을 확인하실 수 있습니다!
