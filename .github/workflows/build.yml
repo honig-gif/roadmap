@@ -1,4 +1,4 @@
-name: Build Mobile APK and Deploy
+name: Build Mobile App and Deploy with Web
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
     branches: [ "main", "master" ]
 
 jobs:
-  build-android:
+  build-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
@@ -30,16 +30,23 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      # 1. 안드로이드 APK 빌드
       - name: Build APK
         run: flutter build apk --release
 
-      # 빌드된 APK 파일을 파이어베이스 호스팅용 폴더에 단독으로 위치시키기
-      - name: Prepare APK for Hosting
+      # 2. 파이어베이스 배포용 폴더(public) 세팅
+      - name: Prepare Hosting Directory
         run: |
           mkdir -p public
+          
+          # [핵심] 기존 웹서비스 파일들을 public 폴더로 복사해 옵니다.
+          # (만약 웹 파일들이 다른 레포에 있다면 깃 클론을 해오거나, 이 레포 내에 web_dist 폴더 등으로 관리할 수 있습니다)
+          # 예시: cp -r web_dist/* public/
+          
+          # 3. 빌드된 APK를 웹 파일들이 있는 public 폴더 안으로 쏙 복사
           cp build/app/outputs/flutter-apk/app-release.apk public/app-release.apk
 
-      - name: Deploy APK to Firebase Hosting
+      - name: Deploy to Firebase Hosting
         uses: w9jds/firebase-action@master
         with:
           args: deploy --only hosting
