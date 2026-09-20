@@ -33,7 +33,13 @@ jobs:
       - name: Build APK
         run: flutter build apk --release
 
-      - name: Deploy to Firebase Hosting / Storage
+      # [추가] 파이어베이스 배포 폴더(public)를 만들고 빌드된 APK를 그 안으로 복사
+      - name: Prepare APK for Hosting
+        run: |
+          mkdir -p public
+          cp build/app/outputs/flutter-apk/app-release.apk public/app-release.apk
+
+      - name: Deploy to Firebase Hosting
         uses: w9jds/firebase-action@master
         with:
           args: deploy --only hosting
