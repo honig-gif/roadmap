@@ -1,4 +1,4 @@
-name: Build Mobile App
+name: Build Mobile App and Deploy
 
 on:
   push:
@@ -23,7 +23,7 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.47.5' # 안정적인 플러터 버전 지정
+          flutter-version: '3.47.5'
           channel: 'stable'
           cache: true
 
@@ -33,8 +33,9 @@ jobs:
       - name: Build APK
         run: flutter build apk --release
 
-      - name: Upload APK Artifact
-        uses: actions/upload-artifact@v4
+      - name: Deploy to Firebase Hosting / Storage
+        uses: w9jds/firebase-action@master
         with:
-          name: app-release
-          path: build/app/outputs/flutter-apk/app-release.apk
+          args: deploy --only hosting
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
