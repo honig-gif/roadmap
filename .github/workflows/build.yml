@@ -1,13 +1,11 @@
-name: Build Mobile APK and Deploy
+name: Build and Deploy APK to Firebase
 
 on:
   push:
     branches: [ "main", "master" ]
-  pull_request:
-    branches: [ "main", "master" ]
 
 jobs:
-  build-android:
+  build-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
@@ -30,18 +28,14 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      # 1. 안드로이드 APK 빌드
       - name: Build APK
         run: flutter build apk --release
 
-      # [수정] 파이어베이스가 요구하는 build/web 디렉토리를 생성하고 APK 복사
-      - name: Prepare APK for Firebase Hosting
-        run: |
-          mkdir -p build/web
-          cp build/app/outputs/flutter-apk/app-release.apk build/web/app-release.apk
-
-      - name: Deploy to Firebase Hosting
+      # 2. Firebase App Distribution을 통해 파이어베이스로 즉시 업로드
+      - name: Upload to Firebase App Distribution
         uses: w9jds/firebase-action@master
         with:
-          args: deploy --only hosting
+          args: appdistribution:distribute build/app/outputs/flutter-apk/app-release.apk --app 1:76487740850:android:43d1534a054aea46f4a8ab --token "${{ secrets.FIREBASE_TOKEN }}" --groups "testers"
         env:
           FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
