@@ -36,6 +36,6 @@ jobs:
       - name: Upload to Firebase App Distribution
         uses: w9jds/firebase-action@master
         with:
-          args: appdistribution:distribute build/app/outputs/flutter-apk/app-release.apk --app 1:76487740850:android:43d1534a054aea46f4a8ab --token "${{ secrets.FIREBASE_TOKEN }}" --groups "testers"
+          args: appdistribution:distribute build/app/outputs/flutter-apk/app-release.apk --app 1:76487740850:android:3e648c4bcfdb8b26f4a8ab --token "${{ secrets.FIREBASE_TOKEN }}" --groups "testers"
         env:
           FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
