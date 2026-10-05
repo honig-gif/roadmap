@@ -28,11 +28,23 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      # 1. 안드로이드 APK 빌드 (GitHub Run Number를 활용해 빌드 코드 자동 증가)
+      # 1. GitHub Secrets에서 Keystore를 복원하고 key.properties 생성 (릴리스 서명용)
+      - name: Decode Keystore
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > android/app/upload-keystore.jks
+      
+      - name: Create key.properties
+        run: |
+          echo "storePassword=${{ secrets.KEYSTORE_PASSWORD }}" > android/key.properties
+          echo "keyPassword=${{ secrets.KEY_PASSWORD }}" >> android/key.properties
+          echo "keyAlias=${{ secrets.KEY_ALIAS }}" >> android/key.properties
+          echo "storeFile=upload-keystore.jks" >> android/key.properties
+
+      # 2. 안드로이드 릴리스 APK 빌드 (GitHub Run Number를 빌드 번호로 활용)
       - name: Build APK
         run: flutter build apk --release --build-number=${{ github.run_number }}
 
-      # 2. Firebase App Distribution을 통해 파이어베이스로 즉시 업로드
+      # 3. Firebase App Distribution을 통해 파이어베이스로 즉시 업로드
       - name: Upload to Firebase App Distribution
         uses: w9jds/firebase-action@master
         with:
@@ -40,21 +52,47 @@ jobs:
         env:
           FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
 
-      # 3. Firestore에 배포된 버전 기록 자동 저장
+      # 4. Firestore에 배포된 버전 기록 자동 저장
       - name: Save Release Info to Firestore
-        uses: actions/github-script@v6
-        with:
-          script: |
-            const https = require('https');
-            
-            // pubspec.yaml 등에서 버전 정보를 가져오거나 런타임 번호 활용
-            const buildNumber = '${{ github.run_number }}';
-            const commitMessage = context.payload.head_commit ? context.payload.head_commit.message : '자동 배포 릴리스';
-            const currentDate = new Date().toISOString().replace('T', ' ').substring(0, 16);
-            
-            // Firebase App Distribution 공용 테스터 링크 (또는 특정 릴리스 링크)
-            const releaseUrl = 'https://appdistribution.firebase.google.com/testerapps/1:76487740850:android:3e648c4bcfdb8b26f4a8ab';
-            
-            // Firestore REST API를 통한 문서 생성 (Project ID: 프로젝트 ID 입력 필요)
-            // 보안 규칙이나 서비스 계정 토큰 없이 간단히 처리하려면 Firestore REST API 활용 가능
-            console.log(`버전 v1.0.${buildNumber} 기록 준비 완료`);
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_KEY }}
+          BUILD_NUMBER: ${{ github.run_number }}
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+        run: |
+          # 1. 임시 노드 환경 및 firebase-admin 설치
+          npm init -y > /dev/null 2>&1
+          npm install firebase-admin > /dev/null 2>&1
+
+          # 2. Node.js를 이용해 Firestore `app_releases` 컬렉션에 데이터 추가
+          node -e '
+          const admin = require("firebase-admin");
+          const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+
+          admin.initializeApp({
+            credential: admin.credential.cert(serviceAccount)
+          });
+
+          const db = admin.firestore();
+
+          async function saveRelease() {
+            const buildNumber = process.env.BUILD_NUMBER;
+            const commitMessage = process.env.COMMIT_MSG || "자동 배포 릴리스";
+            const releaseUrl = "https://appdistribution.firebase.google.com/testerapps/1:76487740850:android:3e648c4bcfdb8b26f4a8ab";
+
+            await db.collection("app_releases").add({
+              version: `1.0.${buildNumber}`,
+              buildNumber: parseInt(buildNumber, 10),
+              releaseNotes: commitMessage,
+              downloadUrl: releaseUrl,
+              createdAt: admin.firestore.FieldValue.serverTimestamp(),
+              platform: "android"
+            });
+
+            console.log(`Firestore에 v1.0.${buildNumber} 릴리스 기록이 성공적으로 저장되었습니다.`);
+          }
+
+          saveRelease().catch((err) => {
+            console.error("Firestore 저장 실패:", err);
+            process.exit(1);
+          });
+          '
