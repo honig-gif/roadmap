@@ -59,20 +59,20 @@ jobs:
           BUILD_NUMBER: ${{ github.run_number }}
           COMMIT_MSG: ${{ github.event.head_commit.message }}
         run: |
-          # 1. 임시 노드 환경 및 firebase-admin 설치
           npm init -y > /dev/null 2>&1
           npm install firebase-admin > /dev/null 2>&1
 
-          # 2. Node.js를 이용해 Firestore `app_releases` 컬렉션에 데이터 추가
           node -e '
-          const admin = require("firebase-admin");
+          const { initializeApp, cert } = require("firebase-admin/app");
+          const { getFirestore, FieldValue } = require("firebase-admin/firestore");
+
           const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
 
-          admin.initializeApp({
-            credential: admin.credential.cert(serviceAccount)
+          initializeApp({
+            credential: cert(serviceAccount)
           });
 
-          const db = admin.firestore();
+          const db = getFirestore();
 
           async function saveRelease() {
             const buildNumber = process.env.BUILD_NUMBER;
@@ -84,7 +84,7 @@ jobs:
               buildNumber: parseInt(buildNumber, 10),
               releaseNotes: commitMessage,
               downloadUrl: releaseUrl,
-              createdAt: admin.firestore.FieldValue.serverTimestamp(),
+              createdAt: FieldValue.serverTimestamp(),
               platform: "android"
             });
 
