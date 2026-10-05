@@ -27,7 +27,7 @@ class _HomeScreenState extends State<HomeScreen> {
   // 위치 로깅 관련 변수
   bool _isLoggingLocation = false;
   StreamSubscription<Position>? _positionStreamSubscription;
-  List<Map<String, dynamic>> _routePoints = [];
+  final List<Map<String, dynamic>> _routePoints = [];
   double _totalDistanceMeters = 0.0;
   DateTime? _loggingStartTime;
   int _elapsedSeconds = 0;
