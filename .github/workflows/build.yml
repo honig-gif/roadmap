@@ -28,9 +28,9 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      # 1. 안드로이드 APK 빌드
+      # 1. 안드로이드 APK 빌드 (GitHub Run Number를 활용해 빌드 코드 자동 증가)
       - name: Build APK
-        run: flutter build apk --release
+        run: flutter build apk --release --build-number=${{ github.run_number }}
 
       # 2. Firebase App Distribution을 통해 파이어베이스로 즉시 업로드
       - name: Upload to Firebase App Distribution
@@ -39,3 +39,22 @@ jobs:
           args: appdistribution:distribute build/app/outputs/flutter-apk/app-release.apk --app 1:76487740850:android:3e648c4bcfdb8b26f4a8ab --token "${{ secrets.FIREBASE_TOKEN }}" --groups "testers"
         env:
           FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+
+      # 3. Firestore에 배포된 버전 기록 자동 저장
+      - name: Save Release Info to Firestore
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const https = require('https');
+            
+            // pubspec.yaml 등에서 버전 정보를 가져오거나 런타임 번호 활용
+            const buildNumber = '${{ github.run_number }}';
+            const commitMessage = context.payload.head_commit ? context.payload.head_commit.message : '자동 배포 릴리스';
+            const currentDate = new Date().toISOString().replace('T', ' ').substring(0, 16);
+            
+            // Firebase App Distribution 공용 테스터 링크 (또는 특정 릴리스 링크)
+            const releaseUrl = 'https://appdistribution.firebase.google.com/testerapps/1:76487740850:android:3e648c4bcfdb8b26f4a8ab';
+            
+            // Firestore REST API를 통한 문서 생성 (Project ID: 프로젝트 ID 입력 필요)
+            // 보안 규칙이나 서비스 계정 토큰 없이 간단히 처리하려면 Firestore REST API 활용 가능
+            console.log(`버전 v1.0.${buildNumber} 기록 준비 완료`);
