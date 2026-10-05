@@ -1,0 +1,41 @@
+name: Build and Deploy APK to Firebase
+
+on:
+  push:
+    branches: [ "main", "master" ]
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with: 
+          flutter-version: '3.47.5'
+          channel: 'stable'
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      # 1. 안드로이드 APK 빌드
+      - name: Build APK
+        run: flutter build apk --release
+
+      # 2. Firebase App Distribution을 통해 파이어베이스로 즉시 업로드
+      - name: Upload to Firebase App Distribution
+        uses: w9jds/firebase-action@master
+        with:
+          args: appdistribution:distribute build/app/outputs/flutter-apk/app-release.apk --app 1:76487740850:android:3e648c4bcfdb8b26f4a8ab --token "${{ secrets.FIREBASE_TOKEN }}" --groups "testers"
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}

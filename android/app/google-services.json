@@ -1,0 +1,118 @@
+{
+  "project_info": {
+    "project_number": "76487740850",
+    "project_id": "employee-83073",
+    "storage_bucket": "employee-83073.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:76487740850:android:43d1534a054aea46f4a8ab",
+        "android_client_info": {
+          "package_name": "com.example.commute"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "76487740850-uh3q0jfoluik19p3frokbp14slmj4gel.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCksvspBj8H4BEeT0l9OtYrFKGAYvm8SWE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "76487740850-uh3q0jfoluik19p3frokbp14slmj4gel.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "76487740850-0dtvkoi2qjhclcatfbeuki58bmftqf2b.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.commute"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:76487740850:android:3e648c4bcfdb8b26f4a8ab",
+        "android_client_info": {
+          "package_name": "com.github.roadmap"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "76487740850-uh3q0jfoluik19p3frokbp14slmj4gel.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCksvspBj8H4BEeT0l9OtYrFKGAYvm8SWE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "76487740850-uh3q0jfoluik19p3frokbp14slmj4gel.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "76487740850-0dtvkoi2qjhclcatfbeuki58bmftqf2b.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.commute"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:76487740850:android:d92b5646228613c3f4a8ab",
+        "android_client_info": {
+          "package_name": "com.honig.employee"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "76487740850-uh3q0jfoluik19p3frokbp14slmj4gel.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCksvspBj8H4BEeT0l9OtYrFKGAYvm8SWE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "76487740850-uh3q0jfoluik19p3frokbp14slmj4gel.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "76487740850-0dtvkoi2qjhclcatfbeuki58bmftqf2b.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.commute"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
