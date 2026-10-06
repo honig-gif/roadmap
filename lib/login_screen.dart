@@ -18,7 +18,9 @@ class _LoginScreenState extends State<LoginScreen> {
 
     try {
       // 1. 구글 팝업창 띄우기
-      final GoogleSignInAccount? googleUser = await GoogleSignIn().signIn();
+      final GoogleSignInAccount? googleUser = await GoogleSignIn(
+        serverClientId: '76487740850-uh3q0jfoluik19p3frokbp14slmj4gel.apps.googleusercontent.com',
+      ).signIn();
       if (googleUser == null) {
         // 사용자가 로그인을 취소한 경우
         setState(() => _isLoading = false);
