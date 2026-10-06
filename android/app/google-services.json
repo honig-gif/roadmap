@@ -14,7 +14,7 @@
       },
       "oauth_client": [
         {
-          "client_id": "76487740850-uh3q0jfoluik19p3frokbp14slmj4gel.apps.googleusercontent.com", 
+          "client_id": "76487740850-uh3q0jfoluik19p3frokbp14slmj4gel.apps.googleusercontent.com",
           "client_type": 3
         }
       ],
@@ -49,6 +49,14 @@
         }
       },
       "oauth_client": [
+        {
+          "client_id": "76487740850-mb3f6t7m63ddlddl4u6jl5bqu57v9467.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.github.roadmap",
+            "certificate_hash": "bb692c82bc0c42af8dfa1526d89f3a238b618082"
+          }
+        },
         {
           "client_id": "76487740850-uh3q0jfoluik19p3frokbp14slmj4gel.apps.googleusercontent.com",
           "client_type": 3
