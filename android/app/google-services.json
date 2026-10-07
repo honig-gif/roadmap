@@ -50,6 +50,14 @@
       },
       "oauth_client": [
         {
+          "client_id": "76487740850-6mkhvg0e0k1rlhhjcsjl7vj1jbnkmtai.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.github.roadmap",
+            "certificate_hash": "38e418cda02ef73b5db7a8e266de17bb6e7dbfba"
+          }
+        },
+        {
           "client_id": "76487740850-mb3f6t7m63ddlddl4u6jl5bqu57v9467.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
