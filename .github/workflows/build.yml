@@ -40,6 +40,14 @@ jobs:
           echo "keyAlias=${{ secrets.KEY_ALIAS }}" >> android/key.properties
           echo "storeFile=upload-keystore.jks" >> android/key.properties
 
+      - name: Check Release SHA-1
+        run: |
+          keytool -list -v \
+            -keystore android/app/upload-keystore.jks \
+            -storepass "${{ secrets.KEYSTORE_PASSWORD }}" \
+            -alias "${{ secrets.KEY_ALIAS }}" \
+            | grep -E "Alias name:|SHA1:|SHA256:"
+            
       # 2. 안드로이드 릴리스 APK 빌드 (GitHub Run Number를 빌드 번호로 활용)
       - name: Build APK
         run: flutter build apk --release --build-number=${{ github.run_number }}
