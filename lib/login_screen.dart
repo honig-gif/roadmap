@@ -49,10 +49,27 @@ class _LoginScreenState extends State<LoginScreen> {
       if (mounted) {
         context.go('/home'); // 로그인 성공 시 홈으로 이동
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      debugPrint('[GoogleSignIn] 오류: $e');
+      debugPrint('[GoogleSignIn] 상세 정보: $stackTrace');
+
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('구글 로그인 실패: $e')),
+        showDialog<void>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('구글 로그인 오류'),
+            content: SingleChildScrollView(
+              child: SelectableText(
+                '오류 내용:\n$e\n\n상세 정보:\n$stackTrace',
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('확인'),
+              ),
+            ],
+          ),
         );
       }
     } finally {
