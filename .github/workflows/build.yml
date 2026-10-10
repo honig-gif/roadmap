@@ -54,11 +54,6 @@ jobs:
 
       - name: Verify APK Signing Certificate
         run: |
-          APK_SIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n 1)
-          "$APK_SIGNER" verify --print-certs build/app/outputs/flutter-apk/app-release.apk
-
-      - name: Verify APK Signing Certificate
-        run: |
           $ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -n 1)/apksigner verify --print-certs build/app/outputs/flutter-apk/app-release.apk
 
       # 3. Firebase App Distribution을 통해 파이어베이스로 즉시 업로드
