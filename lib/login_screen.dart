@@ -18,17 +18,24 @@ class _LoginScreenState extends State<LoginScreen> {
 
     try {
       // 1. 구글 팝업창 띄우기
+      debugPrint('[GoogleSignIn] 1. 로그인 시작');
+
       final GoogleSignInAccount? googleUser = await GoogleSignIn(
         serverClientId: '76487740850-uh3q0jfoluik19p3frokbp14slmj4gel.apps.googleusercontent.com',
       ).signIn();
+
+      debugPrint('[GoogleSignIn] 2. Google 계정 선택 완료');
+
       if (googleUser == null) {
-        // 사용자가 로그인을 취소한 경우
+        debugPrint('[GoogleSignIn] 사용자가 로그인을 취소함');
         setState(() => _isLoading = false);
         return;
       }
 
       // 2. 구글 인증 정보 가져오기
       final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+
+      debugPrint('[GoogleSignIn] 3. 인증 토큰 획득 완료');
 
       // 3. Firebase 자격 증명 생성
       final credential = GoogleAuthProvider.credential(
