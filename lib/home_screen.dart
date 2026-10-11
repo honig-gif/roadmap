@@ -17,12 +17,14 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   // 만보기 관련 변수
-  late Stream<StepCount> _stepCountStream;
-  late Stream<PedestrianStatus> _pedestrianStatusStream;
+  StreamSubscription<StepCount>? _stepCountSubscription;
+  StreamSubscription<PedestrianStatus>? _pedestrianStatusSubscription;
   String _pedometerStatus = '확인 중...';
   int _currentSteps = 0;
-  int _baseSteps = 0;
+  int? _baseSteps;
+  int? _lastSensorSteps;
   int _todaySavedSteps = 0;
+  String _activeDateKey = ''; 
 
   // 위치 로깅 관련 변수
   bool _isLoggingLocation = false;
@@ -43,70 +45,118 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void dispose() {
     _positionStreamSubscription?.cancel();
+    _pedestrianStatusSubscription?.cancel();
+    _stepCountSubscription?.cancel();
     _timer?.cancel();
     super.dispose();
   }
 
   // --- [만보기 로직] ---
+  String get _todayKey {
+    final now = DateTime.now();
+    final month = now.month.toString().padLeft(2, '0');
+    final day = now.day.toString().padLeft(2, '0');
+    return '${now.year}-$month-$day';
+  }
+
   Future<void> _loadLocalSteps() async {
     final prefs = await SharedPreferences.getInstance();
+    final dateKey = _todayKey;
+    final savedSteps = prefs.getInt('today_steps_$dateKey') ?? 0;
+    if (!mounted) return;
     setState(() {
-      _todaySavedSteps = prefs.getInt('today_steps') ?? 0;
+      _todaySavedSteps = savedSteps;
+      _activeDateKey = dateKey;
     });
   }
 
   void _initPedometer() {
-    _pedestrianStatusStream = Pedometer.pedestrianStatusStream;
-    _pedestrianStatusStream.listen((event) {
-      setState(() => _pedometerStatus = event.status);
-    }).onError((error) => setState(() => _pedometerStatus = '센서 에러'));
+    _pedestrianStatusSubscription = Pedometer.pedestrianStatusStream.listen(
+      (event) {
+        if (!mounted) return;
+        setState(() => _pedometerStatus = event.status);
+      },
+      onError: (Object error) {
+        if (!mounted) return;
+        setState(() => _pedometerStatus = '센서 에러');
+        debugPrint('Pedometer status error: $error');
+      },
+    );
 
-    _stepCountStream = Pedometer.stepCountStream;
-    _stepCountStream.listen((event) {
-      setState(() {
-        if (_baseSteps == 0) _baseSteps = event.steps;
-        _currentSteps = event.steps - _baseSteps;
-      });
-    }).onError((error) => debugPrint("Pedometer Error: $error"));
+    _stepCountSubscription = Pedometer.stepCountStream.listen(
+      (event) async {
+        final dateKey = _todayKey;
+        final prefs = await SharedPreferences.getInstance();
+        if (!mounted) return;
+
+        setState(() {
+          // 날짜가 바뀌면 오늘의 저장 걸음 수와 센서 기준점을 새로 시작합니다.
+          if (_activeDateKey != dateKey) {
+            _activeDateKey = dateKey;
+            _todaySavedSteps = prefs.getInt('today_steps_$dateKey') ?? 0;
+            _baseSteps = event.steps;
+            _currentSteps = 0;
+          } else {
+            _baseSteps ??= event.steps;
+            final difference = event.steps - _baseSteps!;
+            _currentSteps = difference > 0 ? difference : 0;
+          }
+          _lastSensorSteps = event.steps;
+        });
+      },
+      onError: (Object error) {
+        debugPrint('Pedometer step count error: $error');
+        if (!mounted) return;
+        setState(() => _pedometerStatus = '센서 에러');
+      },
+    );
   }
 
   Future<void> _saveStepsToServer() async {
     final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
+    if (user == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('로그인 후 걸음 수를 저장할 수 있습니다.')),
+        );
+      }
+      return;
+    }
 
+    final dateKey = _todayKey;
     final totalStepsToSave = _todaySavedSteps + _currentSteps;
-    final todayKey = DateTime.now().toIso8601String().substring(0, 10);
 
     try {
       await FirebaseFirestore.instance
           .collection('users')
           .doc(user.uid)
           .collection('pedometer')
-          .doc(todayKey)
+          .doc(dateKey)
           .set({
-        'date': todayKey,
+        'date': dateKey,
         'steps': totalStepsToSave,
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
 
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt('today_steps_$dateKey', totalStepsToSave);
+
+      if (!mounted) return;
       setState(() {
         _todaySavedSteps = totalStepsToSave;
-        _baseSteps = 0;
+        // 저장 직후 센서의 현재 누적값을 새 기준점으로 삼아 중복 합산을 막습니다.
+        _baseSteps = _lastSensorSteps;
         _currentSteps = 0;
       });
 
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setInt('today_steps', _todaySavedSteps);
-
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('걸음 수 저장 완료: users/${user.uid}/pedometer/$dateKey')),
+      );
+    } catch (e, stackTrace) {
+      debugPrint('Firestore pedometer save error: $e\n$stackTrace');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('걸음 수가 서버에 저장되었습니다!')),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('서버 저장 실패 (오프라인 상태): $e')),
+          SnackBar(content: Text('걸음 수 저장 실패: $e')),
         );
       }
     }
@@ -145,9 +195,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
     // 타이머 시작 (경과 시간 측정)
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      setState(() {
-        _elapsedSeconds++;
-      });
+      if (!mounted) return;
+      setState(() => _elapsedSeconds++);
     });
 
     // 위치 스트림 구독 (오프라인 우선: 로컬 리스트에 계속 누적)
@@ -157,6 +206,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
 
     _positionStreamSubscription = Geolocator.getPositionStream(locationSettings: locationSettings).listen((Position position) async {
+      if (!mounted) return;
       setState(() {
         final newPoint = {
           'latitude': position.latitude,
@@ -180,9 +230,13 @@ class _HomeScreenState extends State<HomeScreen> {
       });
 
       // 오프라인 대비 로컬 SharedPreferences에 임시 저장
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('temp_route', jsonEncode(_routePoints));
-      await prefs.setDouble('temp_distance', _totalDistanceMeters);
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('temp_route', jsonEncode(_routePoints));
+        await prefs.setDouble('temp_distance', _totalDistanceMeters);
+      } catch (e) {
+        debugPrint('Temporary route save error: $e');
+      }
     });
 
     if (mounted) {
@@ -194,25 +248,44 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _stopAndSaveLocationLogging() async {
     if (!_isLoggingLocation) return;
 
-    _positionStreamSubscription?.cancel();
+    await _positionStreamSubscription?.cancel();
+    _positionStreamSubscription = null;
     _timer?.cancel();
+    _timer = null;
 
     final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
+    if (user == null) {
+      if (mounted) {
+        setState(() => _isLoggingLocation = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('로그인 상태를 확인한 후 다시 시도해 주세요.')),
+        );
+      }
+      return;
+    }
+
+    if (_routePoints.isEmpty) {
+      if (mounted) {
+        setState(() => _isLoggingLocation = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('기록된 위치가 없습니다. GPS 신호를 확인한 후 다시 시도해 주세요.')),
+        );
+      }
+      return;
+    }
 
     final docId = DateTime.now().toIso8601String();
-    final summaryData = {
+    final summaryData = <String, dynamic>{
       'startTime': _loggingStartTime?.toIso8601String(),
       'endTime': DateTime.now().toIso8601String(),
       'totalDistanceKm': double.parse((_totalDistanceMeters / 1000).toStringAsFixed(2)),
       'elapsedSeconds': _elapsedSeconds,
-      'steps': _currentSteps, // 연동된 걸음 수
-      'routePoints': _routePoints,
+      'steps': _currentSteps,
+      'routePoints': List<Map<String, dynamic>>.from(_routePoints),
       'createdAt': FieldValue.serverTimestamp(),
     };
 
     try {
-      // Firestore에 전체 정보 한 번에 저장 (오프라인이면 자동 큐잉됨)
       await FirebaseFirestore.instance
           .collection('users')
           .doc(user.uid)
@@ -220,26 +293,22 @@ class _HomeScreenState extends State<HomeScreen> {
           .doc(docId)
           .set(summaryData);
 
-      setState(() {
-        _isLoggingLocation = false;
-      });
-
-      // 임시 로컬 데이터 삭제
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove('temp_route');
       await prefs.remove('temp_distance');
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('위치 로깅 기록이 서버에 안전하게 저장되었습니다!')),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('서버 저장 실패 (오프라인 상태일 수 있습니다): $e')),
-        );
-      }
+      if (!mounted) return;
+      setState(() => _isLoggingLocation = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('경로 저장 완료: users/${user.uid}/location_logs/$docId')),
+      );
+    } catch (e, stackTrace) {
+      debugPrint('Firestore location save error: $e\n$stackTrace');
+      if (!mounted) return;
+      setState(() => _isLoggingLocation = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('경로 저장 실패: $e\n임시 경로는 기기에 남아 있을 수 있습니다.')),
+      );
     }
   }
 

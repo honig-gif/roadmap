@@ -15,6 +15,7 @@ class _PedometerDetailScreenState extends State<PedometerDetailScreen> {
   bool _isLoading = true;
   List<Map<String, dynamic>> _weeklyData = [];
   int _totalWeeklySteps = 0;
+  String? _errorMessage;
 
   @override
   void initState() {
@@ -25,7 +26,14 @@ class _PedometerDetailScreenState extends State<PedometerDetailScreen> {
   // 최근 7일간의 데이터를 Firestore에서 불러오기
   Future<void> _fetchWeeklyData() async {
     final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
+    if (user == null) {
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+        _errorMessage = '로그인이 필요합니다.';
+      });
+      return;
+    }
 
     try {
       final now = DateTime.now();
@@ -36,7 +44,9 @@ class _PedometerDetailScreenState extends State<PedometerDetailScreen> {
       for (int i = 6; i >= 0; i--) {
         final date = now.subtract(Duration(days: i));
         final dateKey = DateFormat('yyyy-MM-dd').format(date);
-        final dayOfWeek = DateFormat('E', 'ko_KR').format(date); // 월, 화, 수...
+        // intl의 ko_KR locale 데이터를 별도 초기화하지 않아도 되도록 요일명을 직접 구성합니다.
+        const weekdays = ['월', '화', '수', '목', '금', '토', '일'];
+        final dayOfWeek = weekdays[date.weekday - 1];
 
         tempData.add({
           'dateKey': dateKey,
@@ -79,8 +89,10 @@ class _PedometerDetailScreenState extends State<PedometerDetailScreen> {
       });
     } catch (e) {
       debugPrint("Weekly Data Error: $e");
+      if (!mounted) return;
       setState(() {
         _isLoading = false;
+        _errorMessage = 'Firestore에서 걸음 수를 불러오지 못했습니다: $e';
       });
     }
   }
@@ -95,7 +107,12 @@ class _PedometerDetailScreenState extends State<PedometerDetailScreen> {
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : Padding(
+          : _errorMessage != null
+              ? Center(child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Text(_errorMessage!, textAlign: TextAlign.center),
+                ))
+              : Padding(
               padding: const EdgeInsets.all(16.0),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,

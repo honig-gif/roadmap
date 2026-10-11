@@ -23,49 +23,44 @@ class _LocationDetailScreenState extends State<LocationDetailScreen> {
   }
 
   void _parseRouteData() {
-    final rawPoints = widget.logData['routePoints'] as List<dynamic>?;
-    if (rawPoints == null || rawPoints.isEmpty) return;
+    final rawPoints = widget.logData['routePoints'];
+    if (rawPoints is! List) return;
 
-    List<LatLng> latLngList = [];
-    for (var point in rawPoints) {
-      final lat = point['latitude'] as double;
-      final lng = point['longitude'] as double;
+    final latLngList = <LatLng>[];
+    for (final rawPoint in rawPoints) {
+      if (rawPoint is! Map) continue;
+      final latValue = rawPoint['latitude'];
+      final lngValue = rawPoint['longitude'];
+      if (latValue is! num || lngValue is! num) continue;
+      final lat = latValue.toDouble();
+      final lng = lngValue.toDouble();
+      if (lat < -90 || lat > 90 || lng < -180 || lng > 180) continue;
       latLngList.add(LatLng(lat, lng));
     }
 
-    if (latLngList.isNotEmpty) {
-      _initialCameraPosition = latLngList.first;
+    if (latLngList.isEmpty) return;
+    _initialCameraPosition = latLngList.first;
 
-      // 시작점과 종료점 마커 추가
-      _markers.add(
-        Marker(
-          markerId: const MarkerId('start'),
-          position: latLngList.first,
-          infoWindow: const InfoWindow(title: '출발지'),
-          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
-        ),
-      );
+    _markers.add(Marker(
+      markerId: const MarkerId('start'),
+      position: latLngList.first,
+      infoWindow: const InfoWindow(title: '출발지'),
+      icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
+    ));
 
-      if (latLngList.length > 1) {
-        _markers.add(
-          Marker(
-            markerId: const MarkerId('end'),
-            position: latLngList.last,
-            infoWindow: const InfoWindow(title: '도착지'),
-            icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
-          ),
-        );
-      }
-
-      // 경로 폴리라인 추가
-      _polylines.add(
-        Polyline(
-          polylineId: const PolylineId('route_path'),
-          points: latLngList,
-          color: Colors.blueAccent,
-          width: 5,
-        ),
-      );
+    if (latLngList.length > 1) {
+      _markers.add(Marker(
+        markerId: const MarkerId('end'),
+        position: latLngList.last,
+        infoWindow: const InfoWindow(title: '도착지'),
+        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+      ));
+      _polylines.add(Polyline(
+        polylineId: const PolylineId('route_path'),
+        points: latLngList,
+        color: Colors.blueAccent,
+        width: 5,
+      ));
     }
   }
 
@@ -123,6 +118,7 @@ class _LocationDetailScreenState extends State<LocationDetailScreen> {
                 border: Border.all(color: Colors.grey.shade300),
               ),
               child: GoogleMap(
+                mapType: MapType.normal,
                 initialCameraPosition: CameraPosition(
                   target: _initialCameraPosition,
                   zoom: 15.0,
@@ -131,6 +127,7 @@ class _LocationDetailScreenState extends State<LocationDetailScreen> {
                 markers: _markers,
                 myLocationButtonEnabled: false,
                 zoomControlsEnabled: true,
+                compassEnabled: true,
                 // 사용하지 않는 controller 콜백을 제거했습니다.
               ),
             ),
