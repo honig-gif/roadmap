@@ -105,7 +105,7 @@ class _LocationDetailScreenState extends State<LocationDetailScreen> {
                   mainAxisAlignment: MainAxisAlignment.spaceAround,
                   children: [
                     _buildStatItem('이동 거리', '$distanceKm km', Icons.map),
-                    _buildStatItem('소요 시간', '${minutes}분 ${seconds}초', Icons.timer),
+                    _buildStatItem('소요 시간', '$minutes분 $seconds초', Icons.timer),
                     _buildStatItem('걸음 수', '$steps 보', Icons.directions_walk),
                   ],
                 ),
