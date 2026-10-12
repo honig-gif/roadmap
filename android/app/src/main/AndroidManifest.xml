@@ -12,7 +12,7 @@
         <!-- 여기에 Google Maps API 키 추가 -->
         <meta-data
             android:name="com.google.android.geo.API_KEY"
-            android:value="AIzaSyBwEHkb08IqIDAiSxoEDh1T-KijgoJj13E"/>
+            android:value="AIzaSyCksvspBj8H4BEeT0l9OtYrFKGAYvm8SWE"/>
         <activity
             android:name=".MainActivity"
             android:exported="true"
