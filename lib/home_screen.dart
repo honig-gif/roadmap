@@ -64,7 +64,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     // 비동기 작업이 끝난 뒤에도 위젯이 살아 있는지 확인
     if (!mounted) return;
-    
+
     const introKey = 'permissions_intro_shown_v1';
     final introAlreadyShown = prefs.getBool(introKey) ?? false;
 
@@ -178,48 +178,90 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _initPedometer() {
-    if (_pedometerInitialized) return;
+    if (_pedometerInitialized) {
+      debugPrint('[Pedometer] 이미 초기화되어 있습니다.');
+      return;
+    }
+
     _pedometerInitialized = true;
-    _pedestrianStatusSubscription = Pedometer.pedestrianStatusStream.listen(
+    debugPrint('[Pedometer] 초기화를 시작합니다.');
+
+    _pedestrianStatusSubscription =
+        Pedometer.pedestrianStatusStream.listen(
       (event) {
+        debugPrint('[Pedometer] 보행 상태 수신: ${event.status}');
+
         if (!mounted) return;
-        setState(() => _pedometerStatus = event.status);
+
+        setState(() {
+          _pedometerStatus = event.status;
+        });
       },
-      onError: (Object error) {
+      onError: (Object error, StackTrace stackTrace) {
+        debugPrint('[Pedometer] 보행 상태 오류: $error');
+        debugPrintStack(stackTrace: stackTrace);
+
         if (!mounted) return;
-        setState(() => _pedometerStatus = '센서 에러');
-        debugPrint('Pedometer status error: $error');
+
+        setState(() {
+          _pedometerStatus = '센서 에러';
+        });
       },
     );
 
     _stepCountSubscription = Pedometer.stepCountStream.listen(
       (event) async {
+        debugPrint('[Pedometer] 센서 이벤트 수신: steps=${event.steps}');
+
         final dateKey = _todayKey;
         final prefs = await SharedPreferences.getInstance();
+
         if (!mounted) return;
 
         setState(() {
-          // 날짜가 바뀌면 오늘의 저장 걸음 수와 센서 기준점을 새로 시작합니다.
           if (_activeDateKey != dateKey) {
             _activeDateKey = dateKey;
-            _todaySavedSteps = prefs.getInt('today_steps_$dateKey') ?? 0;
+            _todaySavedSteps =
+                prefs.getInt('today_steps_$dateKey') ?? 0;
+
             _baseSteps = event.steps;
             _currentSteps = 0;
           } else {
             _baseSteps ??= event.steps;
+
             final difference = event.steps - _baseSteps!;
             _currentSteps = difference > 0 ? difference : 0;
           }
+
           _lastSensorSteps = event.steps;
         });
+
+        debugPrint(
+          '[Pedometer] 계산 결과: '
+          'sensor=${event.steps}, '
+          'base=$_baseSteps, '
+          'current=$_currentSteps, '
+          'saved=$_todaySavedSteps, '
+          'total=${_todaySavedSteps + _currentSteps}',
+        );
       },
-      onError: (Object error) {
-        debugPrint('Pedometer step count error: $error');
+      onError: (Object error, StackTrace stackTrace) {
+        debugPrint('[Pedometer] 걸음 수 센서 오류: $error');
+        debugPrintStack(stackTrace: stackTrace);
+
         if (!mounted) return;
-        setState(() => _pedometerStatus = '센서 에러');
-      },
-    );
-  }
+
+      setState(() {
+        _pedometerStatus = '센서 에러';
+      });
+    },
+    onDone: () {
+      debugPrint('[Pedometer] 걸음 수 스트림이 종료되었습니다.');
+    },
+  );
+
+  debugPrint('[Pedometer] 두 센서 스트림의 구독을 요청했습니다.');
+}
 
   Future<void> _saveStepsToServer() async {
     final user = FirebaseAuth.instance.currentUser;
