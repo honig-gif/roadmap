@@ -201,25 +201,72 @@ class _HomeScreenState extends State<HomeScreen> {
 
     // 위치 스트림 구독 (오프라인 우선: 로컬 리스트에 계속 누적)
     const LocationSettings locationSettings = LocationSettings(
-      accuracy: LocationAccuracy.high,
-      distanceFilter: 5, // 5미터 이상 이동 시 기록
+      accuracy: LocationAccuracy.bestForNavigation,
+      distanceFilter: 3, // 더 세밀하게 위치 변화를 수집합니다.
     );
 
-    _positionStreamSubscription = Geolocator.getPositionStream(locationSettings: locationSettings).listen((Position position) async {
+    _positionStreamSubscription = Geolocator.getPositionStream(
+      locationSettings: locationSettings,
+    ).listen((Position position) async {
       if (!mounted) return;
+
+      // 정확도가 낮은 GPS 표본은 경로에 넣지 않습니다.
+      // 첫 위치는 기록 시작점을 확보하기 위해 정확도 35m까지 허용합니다.
+      final maxAccuracyMeters = _routePoints.isEmpty ? 35.0 : 25.0;
+      if (!position.latitude.isFinite ||
+          !position.longitude.isFinite ||
+          position.latitude < -90 ||
+          position.latitude > 90 ||
+          position.longitude < -180 ||
+          position.longitude > 180 ||
+          !position.accuracy.isFinite ||
+          position.accuracy <= 0 ||
+          position.accuracy > maxAccuracyMeters) {
+        debugPrint(
+          'GPS 표본 제외: accuracy=${position.accuracy.toStringAsFixed(1)}m',
+        );
+        return;
+      }
+
+      // GPS 튐으로 인한 비현실적인 순간 이동을 제외합니다.
+      if (_routePoints.isNotEmpty) {
+        final last = _routePoints.last;
+        final lastLat = (last['latitude'] as num).toDouble();
+        final lastLng = (last['longitude'] as num).toDouble();
+        final distance = Geolocator.distanceBetween(
+          lastLat,
+          lastLng,
+          position.latitude,
+          position.longitude,
+        );
+        final lastTime = DateTime.tryParse(last['timestamp'] as String);
+        final elapsed = lastTime == null
+            ? 0.0
+            : position.timestamp.difference(lastTime).inMilliseconds / 1000.0;
+
+        // 시간 차이가 0에 가깝다면 속도 판정은 하지 않고, 50m/s 초과 점프만 제외합니다.
+        if (elapsed > 0 && distance / elapsed > 50) {
+          debugPrint('GPS 점프 제외: ${distance.toStringAsFixed(1)}m / ${elapsed.toStringAsFixed(1)}s');
+          return;
+        }
+
+        // 거의 같은 좌표를 반복 저장하지 않아 경로 데이터의 불필요한 증가를 막습니다.
+        if (distance < 2) return;
+      }
+
       setState(() {
         final newPoint = {
           'latitude': position.latitude,
           'longitude': position.longitude,
           'timestamp': position.timestamp.toIso8601String(),
+          'accuracy': position.accuracy,
         };
 
         if (_routePoints.isNotEmpty) {
           final last = _routePoints.last;
-          // 이전 좌표와의 거리 계산하여 총 거리 누적
-          double distance = Geolocator.distanceBetween(
-            last['latitude'],
-            last['longitude'],
+          final distance = Geolocator.distanceBetween(
+            (last['latitude'] as num).toDouble(),
+            (last['longitude'] as num).toDouble(),
             position.latitude,
             position.longitude,
           );

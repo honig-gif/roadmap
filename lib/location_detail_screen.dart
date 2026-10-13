@@ -14,7 +14,56 @@ class LocationDetailScreen extends StatefulWidget {
 class _LocationDetailScreenState extends State<LocationDetailScreen> {
   final Set<Polyline> _polylines = {};
   final Set<Marker> _markers = {};
+  final List<LatLng> _routeCoordinates = [];
+  GoogleMapController? _mapController;
   LatLng _initialCameraPosition = const LatLng(37.5665, 126.9780); // 기본 서울 시청 위치
+
+  @override
+  void dispose() {
+    _mapController?.dispose();
+    super.dispose();
+  }
+
+  void _fitRouteToMap() {
+    if (_routeCoordinates.isEmpty || _mapController == null) return;
+    if (_routeCoordinates.length == 1) {
+      _mapController!.animateCamera(
+        CameraUpdate.newLatLngZoom(_routeCoordinates.first, 17),
+      );
+      return;
+    }
+
+    var minLat = _routeCoordinates.first.latitude;
+    var maxLat = minLat;
+    var minLng = _routeCoordinates.first.longitude;
+    var maxLng = minLng;
+    for (final point in _routeCoordinates.skip(1)) {
+      if (point.latitude < minLat) minLat = point.latitude;
+      if (point.latitude > maxLat) maxLat = point.latitude;
+      if (point.longitude < minLng) minLng = point.longitude;
+      if (point.longitude > maxLng) maxLng = point.longitude;
+    }
+
+    // 동일 지점에 가까운 짧은 경로에서도 bounds가 0이 되지 않도록 합니다.
+    if ((maxLat - minLat).abs() < 0.0001) {
+      minLat -= 0.0001;
+      maxLat += 0.0001;
+    }
+    if ((maxLng - minLng).abs() < 0.0001) {
+      minLng -= 0.0001;
+      maxLng += 0.0001;
+    }
+
+    _mapController!.animateCamera(
+      CameraUpdate.newLatLngBounds(
+        LatLngBounds(
+          southwest: LatLng(minLat, minLng),
+          northeast: LatLng(maxLat, maxLng),
+        ),
+        48,
+      ),
+    );
+  }
 
   @override
   void initState() {
@@ -35,10 +84,17 @@ class _LocationDetailScreenState extends State<LocationDetailScreen> {
       final lat = latValue.toDouble();
       final lng = lngValue.toDouble();
       if (lat < -90 || lat > 90 || lng < -180 || lng > 180) continue;
-      latLngList.add(LatLng(lat, lng));
+      final point = LatLng(lat, lng);
+      // 같은 좌표가 연속해서 저장된 경우만 제거합니다. 원래 경로의 굴곡은 유지합니다.
+      if (latLngList.isEmpty ||
+          latLngList.last.latitude != point.latitude ||
+          latLngList.last.longitude != point.longitude) {
+        latLngList.add(point);
+      }
     }
 
     if (latLngList.isEmpty) return;
+    _routeCoordinates.addAll(latLngList);
     _initialCameraPosition = latLngList.first;
 
     _markers.add(Marker(
@@ -123,6 +179,13 @@ class _LocationDetailScreenState extends State<LocationDetailScreen> {
                   target: _initialCameraPosition,
                   zoom: 15.0,
                 ),
+                onMapCreated: (controller) {
+                  _mapController = controller;
+                  // 지도가 생성된 다음 경로 전체가 화면에 들어오도록 확대/축소합니다.
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    _fitRouteToMap();
+                  });
+                },
                 polylines: _polylines,
                 markers: _markers,
                 myLocationButtonEnabled: false,
