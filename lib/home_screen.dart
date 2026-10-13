@@ -7,6 +7,7 @@ import 'package:pedometer/pedometer.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:go_router/go_router.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:permission_handler/permission_handler.dart' as ph;
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -40,6 +41,10 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     _loadLocalSteps();
     _initPedometer();
+    // 홈 화면 진입 후 필요한 권한을 순서대로 요청합니다.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _requestRequiredPermissions();
+    });
   }
 
   @override
@@ -49,6 +54,88 @@ class _HomeScreenState extends State<HomeScreen> {
     _stepCountSubscription?.cancel();
     _timer?.cancel();
     super.dispose();
+  }
+
+  /// 위치 기록과 만보기 기능에 필요한 런타임 권한을 요청합니다.
+  /// Android는 앱 설치 시가 아니라 기능 사용 시점에 권한을 요청합니다.
+  Future<void> _requestRequiredPermissions() async {
+    if (!mounted) return;
+
+    final shouldContinue = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('권한 허용 안내'),
+        content: const Text(
+          '로드맵의 경로 기록 기능은 위치 권한을, 만보기 기능은 신체 활동 권한을 사용합니다. '
+          '두 권한을 허용해야 해당 기능을 사용할 수 있습니다.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('나중에'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('권한 허용하기'),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldContinue != true || !mounted) return;
+
+    // Android 10 이상에서 만보기 센서 접근에 필요한 신체 활동 권한입니다.
+    final activityStatus = await ph.Permission.activityRecognition.status;
+    if (activityStatus.isDenied) {
+      await ph.Permission.activityRecognition.request();
+    } else if (activityStatus.isPermanentlyDenied) {
+      _showPermissionSettingsMessage('신체 활동');
+    }
+
+    if (!mounted) return;
+
+    // Geolocator를 통해 위치 권한을 요청합니다.
+    var locationPermission = await Geolocator.checkPermission();
+    if (locationPermission == LocationPermission.denied) {
+      locationPermission = await Geolocator.requestPermission();
+    }
+
+    if (!mounted) return;
+
+    if (locationPermission == LocationPermission.deniedForever) {
+      _showPermissionSettingsMessage('위치');
+    } else if (locationPermission == LocationPermission.denied) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('위치 권한이 거부되었습니다. 경로 기록을 사용하려면 권한을 허용해 주세요.')),
+      );
+    }
+  }
+
+  void _showPermissionSettingsMessage(String permissionName) {
+    if (!mounted) return;
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('$permissionName 권한이 필요합니다'),
+        content: Text(
+          '$permissionName 권한이 영구적으로 거부되어 있습니다. 앱 설정에서 권한을 허용해 주세요.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('닫기'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              Navigator.of(dialogContext).pop();
+              await ph.openAppSettings();
+            },
+            child: const Text('앱 설정 열기'),
+          ),
+        ],
+      ),
+    );
   }
 
   // --- [만보기 로직] ---
