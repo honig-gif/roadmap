@@ -96,7 +96,7 @@ class LocationListScreen extends StatelessWidget {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Text('거리: $distanceKm km'),
-                        Text('시간: ${minutes}분 ${seconds}초'),
+                        Text('시간: $minutes분 $seconds초'),
                         Text('걸음: $steps보'),
                       ],
                     ),

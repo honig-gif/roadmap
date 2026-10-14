@@ -8,6 +8,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:go_router/go_router.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart' as ph;
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';
+import 'background_tracking_task.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -27,6 +29,7 @@ class _HomeScreenState extends State<HomeScreen> {
   int _todaySavedSteps = 0;
   String _activeDateKey = '';
   bool _pedometerInitialized = false;
+  bool _backgroundStepsEnabled = true;
 
   // 위치 로깅 관련 변수
   bool _isLoggingLocation = false;
@@ -41,6 +44,8 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _loadLocalSteps();
+    _restoreRouteState();
+    FlutterForegroundTask.addTaskDataCallback(_handleBackgroundData);
     // 권한 확인 후 만보기 스트림을 시작합니다.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _requestRequiredPermissions();
@@ -49,6 +54,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
+    FlutterForegroundTask.removeTaskDataCallback(_handleBackgroundData);
     _positionStreamSubscription?.cancel();
     _pedestrianStatusSubscription?.cancel();
     _stepCountSubscription?.cancel();
@@ -126,7 +132,7 @@ class _HomeScreenState extends State<HomeScreen> {
     // 신체 활동 권한이 실제로 허용된 다음에 센서 스트림을 구독합니다.
     // 권한보다 먼저 구독하면 초기 센서 오류 후 걸음 수가 갱신되지 않을 수 있습니다.
     if (activityStatus.isGranted) {
-      _initPedometer();
+      await _startBackgroundServiceIfNeeded();
     } else if (mounted) {
       setState(() => _pedometerStatus = '신체 활동 권한 필요');
     }
@@ -166,102 +172,150 @@ class _HomeScreenState extends State<HomeScreen> {
     return '${now.year}-$month-$day';
   }
 
+
   Future<void> _loadLocalSteps() async {
     final prefs = await SharedPreferences.getInstance();
     final dateKey = _todayKey;
     final savedSteps = prefs.getInt('today_steps_$dateKey') ?? 0;
+    final enabled = prefs.getBool('background_steps_enabled') ?? true;
     if (!mounted) return;
     setState(() {
       _todaySavedSteps = savedSteps;
+      _currentSteps = 0;
       _activeDateKey = dateKey;
+      _backgroundStepsEnabled = enabled;
     });
   }
 
-  void _initPedometer() {
-    if (_pedometerInitialized) {
-      debugPrint('[Pedometer] 이미 초기화되어 있습니다.');
-      return;
+  Future<void> _restoreRouteState() async {
+    final prefs = await SharedPreferences.getInstance();
+    final active = prefs.getBool('route_logging_active') ?? false;
+    final routeString = prefs.getString('temp_route');
+    final distance = prefs.getDouble('temp_distance') ?? 0.0;
+    final startString = prefs.getString('route_start_time');
+    List<Map<String, dynamic>> points = [];
+    if (routeString != null) {
+      try {
+        points = (jsonDecode(routeString) as List)
+            .map((e) => Map<String, dynamic>.from(e as Map))
+            .toList();
+      } catch (_) {
+        points = [];
+      }
     }
+    final start = startString == null ? null : DateTime.tryParse(startString);
+    if (!mounted) return;
+    setState(() {
+      _isLoggingLocation = active;
+      _routePoints
+        ..clear()
+        ..addAll(points);
+      _totalDistanceMeters = distance;
+      _loggingStartTime = start;
+      _elapsedSeconds = start == null ? 0 : DateTime.now().difference(start).inSeconds;
+    });
+    if (active) {
+      _startElapsedTimer();
+    }
+  }
 
-    _pedometerInitialized = true;
-    debugPrint('[Pedometer] 초기화를 시작합니다.');
-
-    _pedestrianStatusSubscription =
-        Pedometer.pedestrianStatusStream.listen(
-      (event) {
-        debugPrint('[Pedometer] 보행 상태 수신: ${event.status}');
-
-        if (!mounted) return;
-
-        setState(() {
-          _pedometerStatus = event.status;
-        });
-      },
-      onError: (Object error, StackTrace stackTrace) {
-        debugPrint('[Pedometer] 보행 상태 오류: $error');
-        debugPrintStack(stackTrace: stackTrace);
-
-        if (!mounted) return;
-
-        setState(() {
-          _pedometerStatus = '센서 에러';
-        });
-      },
-    );
-
-    _stepCountSubscription = Pedometer.stepCountStream.listen(
-      (event) async {
-        debugPrint('[Pedometer] 센서 이벤트 수신: steps=${event.steps}');
-
-        final dateKey = _todayKey;
-        final prefs = await SharedPreferences.getInstance();
-
-        if (!mounted) return;
-
-        setState(() {
-          if (_activeDateKey != dateKey) {
-            _activeDateKey = dateKey;
-            _todaySavedSteps =
-                prefs.getInt('today_steps_$dateKey') ?? 0;
-
-            _baseSteps = event.steps;
-            _currentSteps = 0;
-          } else {
-            _baseSteps ??= event.steps;
-
-            final difference = event.steps - _baseSteps!;
-            _currentSteps = difference > 0 ? difference : 0;
-          }
-
-          _lastSensorSteps = event.steps;
-        });
-
-        debugPrint(
-          '[Pedometer] 계산 결과: '
-          'sensor=${event.steps}, '
-          'base=$_baseSteps, '
-          'current=$_currentSteps, '
-          'saved=$_todaySavedSteps, '
-          'total=${_todaySavedSteps + _currentSteps}',
-        );
-      },
-      onError: (Object error, StackTrace stackTrace) {
-        debugPrint('[Pedometer] 걸음 수 센서 오류: $error');
-        debugPrintStack(stackTrace: stackTrace);
-
-        if (!mounted) return;
-
+  void _handleBackgroundData(Object data) async {
+    if (data is! Map) return;
+    final type = data['type'];
+    if (type == 'steps') {
+      final day = data['day'] as String? ?? _todayKey;
+      final steps = (data['steps'] as num?)?.toInt() ?? 0;
+      final prefs = await SharedPreferences.getInstance();
+      if (!mounted) return;
       setState(() {
-        _pedometerStatus = '센서 에러';
+        if (_activeDateKey != day) {
+          _activeDateKey = day;
+          _currentSteps = 0;
+        }
+        _todaySavedSteps = steps;
+        _pedometerStatus = _backgroundStepsEnabled ? '백그라운드 측정 중' : '측정 꺼짐';
       });
-    },
-    onDone: () {
-      debugPrint('[Pedometer] 걸음 수 스트림이 종료되었습니다.');
-    },
-  );
+      await prefs.setInt('today_steps_$day', steps);
+    } else if (type == 'route') {
+      final prefs = await SharedPreferences.getInstance();
+      final routeString = prefs.getString('temp_route');
+      List<Map<String, dynamic>> points = [];
+      if (routeString != null) {
+        try {
+          points = (jsonDecode(routeString) as List)
+              .map((e) => Map<String, dynamic>.from(e as Map))
+              .toList();
+        } catch (_) {}
+      }
+      final start = DateTime.tryParse(data['start'] as String? ?? '');
+      if (!mounted) return;
+      setState(() {
+        _isLoggingLocation = true;
+        _routePoints
+          ..clear()
+          ..addAll(points);
+        _totalDistanceMeters = (data['distance'] as num?)?.toDouble() ??
+            (prefs.getDouble('temp_distance') ?? 0.0);
+        if (start != null) _loggingStartTime = start;
+        _elapsedSeconds = _loggingStartTime == null
+            ? 0
+            : DateTime.now().difference(_loggingStartTime!).inSeconds;
+      });
+    } else if (type == 'routeStopped') {
+      if (!mounted) return;
+      setState(() {
+        _isLoggingLocation = false;
+        _routePoints
+          ..clear()
+          ..addAll(((data['points'] as List?) ?? [])
+              .map((e) => Map<String, dynamic>.from(e as Map)));
+        _totalDistanceMeters = (data['distance'] as num?)?.toDouble() ?? 0;
+      });
+    } else if (type == 'error') {
+      debugPrint('[BackgroundTracking] ${data['message']}');
+    }
+  }
 
-  debugPrint('[Pedometer] 두 센서 스트림의 구독을 요청했습니다.');
-}
+  Future<void> _startBackgroundServiceIfNeeded() async {
+    final running = await FlutterForegroundTask.isRunningService;
+    if (!running) {
+      await FlutterForegroundTask.startService(
+        serviceId: 256,
+        notificationTitle: '로드맵 기록 기능 실행 중',
+        notificationText: '걸음 수 측정이 활성화되어 있습니다.',
+        callback: startRoadmapBackgroundTask,
+      );
+    }
+    FlutterForegroundTask.sendDataToTask({
+      'command': 'stepsEnabled',
+      'enabled': _backgroundStepsEnabled,
+    });
+  }
+
+  Future<void> _setBackgroundStepsEnabled(bool enabled) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('background_steps_enabled', enabled);
+    if (!mounted) return;
+    setState(() => _backgroundStepsEnabled = enabled);
+    if (enabled) {
+      await _startBackgroundServiceIfNeeded();
+    } else {
+      FlutterForegroundTask.sendDataToTask({
+        'command': 'stepsEnabled',
+        'enabled': false,
+      });
+    }
+  }
+
+  void _startElapsedTimer() {
+    _timer?.cancel();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted || !_isLoggingLocation || _loggingStartTime == null) return;
+      setState(() {
+        _elapsedSeconds = DateTime.now().difference(_loggingStartTime!).inSeconds;
+      });
+    });
+  }
 
   Future<void> _saveStepsToServer() async {
     final user = FirebaseAuth.instance.currentUser;
@@ -314,145 +368,82 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   // --- [위치 로깅 로직 (3번)] ---
+
   Future<void> _startLocationLogging() async {
-    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('위치 서비스를 켜주세요.')));
+      if (mounted) { 
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('위치 서비스를 켜주세요.')),
+        );
+      }
       return;
     }
 
-    LocationPermission permission = await Geolocator.checkPermission();
+    var permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('위치 권한이 거부되었습니다.')));
-        return;
-      }
     }
-
-    if (permission == LocationPermission.deniedForever) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('설정에서 위치 권한을 허용해주세요.')));
+    if (permission == LocationPermission.denied ||
+        permission == LocationPermission.deniedForever) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('설정에서 위치 권한을 허용해주세요.')),
+        );
+      }
       return;
     }
 
-    // 로깅 초기화
+    // 백그라운드 위치 서비스는 앱이 보이는 동안 시작해야 Android 제한을 피할 수 있습니다.
+    await _startBackgroundServiceIfNeeded();
+    final start = DateTime.now();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('route_logging_active', true);
+    await prefs.setString('route_start_time', start.toIso8601String());
+    await prefs.setString('temp_route', '[]');
+    await prefs.setDouble('temp_distance', 0);
+    FlutterForegroundTask.sendDataToTask({'command': 'startRoute'});
+
+    if (!mounted) return;
     setState(() {
       _isLoggingLocation = true;
       _routePoints.clear();
-      _totalDistanceMeters = 0.0;
-      _loggingStartTime = DateTime.now();
+      _totalDistanceMeters = 0;
+      _loggingStartTime = start;
       _elapsedSeconds = 0;
     });
-
-    // 타이머 시작 (경과 시간 측정)
-    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (!mounted) return;
-      setState(() => _elapsedSeconds++);
-    });
-
-    // 위치 스트림 구독 (오프라인 우선: 로컬 리스트에 계속 누적)
-    const LocationSettings locationSettings = LocationSettings(
-      accuracy: LocationAccuracy.bestForNavigation,
-      distanceFilter: 3, // 더 세밀하게 위치 변화를 수집합니다.
+    _startElapsedTimer();
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('백그라운드 경로 기록을 시작했습니다. 알림에 기록 상태가 표시됩니다.')),
     );
-
-    _positionStreamSubscription = Geolocator.getPositionStream(
-      locationSettings: locationSettings,
-    ).listen((Position position) async {
-      if (!mounted) return;
-
-      // 정확도가 낮은 GPS 표본은 경로에 넣지 않습니다.
-      // 첫 위치는 기록 시작점을 확보하기 위해 정확도 35m까지 허용합니다.
-      final maxAccuracyMeters = _routePoints.isEmpty ? 35.0 : 25.0;
-      if (!position.latitude.isFinite ||
-          !position.longitude.isFinite ||
-          position.latitude < -90 ||
-          position.latitude > 90 ||
-          position.longitude < -180 ||
-          position.longitude > 180 ||
-          !position.accuracy.isFinite ||
-          position.accuracy <= 0 ||
-          position.accuracy > maxAccuracyMeters) {
-        debugPrint(
-          'GPS 표본 제외: accuracy=${position.accuracy.toStringAsFixed(1)}m',
-        );
-        return;
-      }
-
-      // GPS 튐으로 인한 비현실적인 순간 이동을 제외합니다.
-      if (_routePoints.isNotEmpty) {
-        final last = _routePoints.last;
-        final lastLat = (last['latitude'] as num).toDouble();
-        final lastLng = (last['longitude'] as num).toDouble();
-        final distance = Geolocator.distanceBetween(
-          lastLat,
-          lastLng,
-          position.latitude,
-          position.longitude,
-        );
-        final lastTime = DateTime.tryParse(last['timestamp'] as String);
-        final elapsed = lastTime == null
-            ? 0.0
-            : position.timestamp.difference(lastTime).inMilliseconds / 1000.0;
-
-        // 시간 차이가 0에 가깝다면 속도 판정은 하지 않고, 50m/s 초과 점프만 제외합니다.
-        if (elapsed > 0 && distance / elapsed > 50) {
-          debugPrint('GPS 점프 제외: ${distance.toStringAsFixed(1)}m / ${elapsed.toStringAsFixed(1)}s');
-          return;
-        }
-
-        // 거의 같은 좌표를 반복 저장하지 않아 경로 데이터의 불필요한 증가를 막습니다.
-        if (distance < 2) return;
-      }
-
-      setState(() {
-        final newPoint = {
-          'latitude': position.latitude,
-          'longitude': position.longitude,
-          'timestamp': position.timestamp.toIso8601String(),
-          'accuracy': position.accuracy,
-        };
-
-        if (_routePoints.isNotEmpty) {
-          final last = _routePoints.last;
-          final distance = Geolocator.distanceBetween(
-            (last['latitude'] as num).toDouble(),
-            (last['longitude'] as num).toDouble(),
-            position.latitude,
-            position.longitude,
-          );
-          _totalDistanceMeters += distance;
-        }
-
-        _routePoints.add(newPoint);
-      });
-
-      // 오프라인 대비 로컬 SharedPreferences에 임시 저장
-      try {
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('temp_route', jsonEncode(_routePoints));
-        await prefs.setDouble('temp_distance', _totalDistanceMeters);
-      } catch (e) {
-        debugPrint('Temporary route save error: $e');
-      }
-    });
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('위치 로깅이 시작되었습니다.')));
-    }
   }
 
   // 위치 로깅 종료 및 서버(Firestore) 저장
   Future<void> _stopAndSaveLocationLogging() async {
     if (!_isLoggingLocation) return;
 
-    await _positionStreamSubscription?.cancel();
-    _positionStreamSubscription = null;
+    FlutterForegroundTask.sendDataToTask({'command': 'stopRoute'});
     _timer?.cancel();
     _timer = null;
 
+    // Background task saves the latest route to local preferences before returning its final data.
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    final prefs = await SharedPreferences.getInstance();
+    final routeString = prefs.getString('temp_route');
+    if (routeString != null) {
+      try {
+        final latest = (jsonDecode(routeString) as List)
+            .map((e) => Map<String, dynamic>.from(e as Map)).toList();
+        _routePoints
+          ..clear()
+          ..addAll(latest);
+      } catch (_) {}
+    }
+    _totalDistanceMeters = prefs.getDouble('temp_distance') ?? _totalDistanceMeters;
+
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
+      await prefs.setBool('route_logging_active', false);
       if (mounted) {
         setState(() => _isLoggingLocation = false);
         ScaffoldMessenger.of(context).showSnackBar(
@@ -463,6 +454,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     if (_routePoints.isEmpty) {
+      await prefs.setBool('route_logging_active', false);
       if (mounted) {
         setState(() => _isLoggingLocation = false);
         ScaffoldMessenger.of(context).showSnackBar(
@@ -478,7 +470,7 @@ class _HomeScreenState extends State<HomeScreen> {
       'endTime': DateTime.now().toIso8601String(),
       'totalDistanceKm': double.parse((_totalDistanceMeters / 1000).toStringAsFixed(2)),
       'elapsedSeconds': _elapsedSeconds,
-      'steps': _currentSteps,
+      'steps': _todaySavedSteps + _currentSteps,
       'routePoints': List<Map<String, dynamic>>.from(_routePoints),
       'createdAt': FieldValue.serverTimestamp(),
     };
@@ -491,9 +483,10 @@ class _HomeScreenState extends State<HomeScreen> {
           .doc(docId)
           .set(summaryData);
 
-      final prefs = await SharedPreferences.getInstance();
       await prefs.remove('temp_route');
       await prefs.remove('temp_distance');
+      await prefs.remove('route_start_time');
+      await prefs.setBool('route_logging_active', false);
 
       if (!mounted) return;
       setState(() => _isLoggingLocation = false);
@@ -578,7 +571,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       children: [
                         const Text('오늘의 만보기', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                         Chip(
-                          label: Text(_pedometerStatus, style: const TextStyle(color: Colors.white, fontSize: 12)),
+                          label: Text(_backgroundStepsEnabled ? _pedometerStatus : '측정 꺼짐', style: const TextStyle(color: Colors.white, fontSize: 12)),
                           backgroundColor: _pedometerStatus == 'walking' ? Colors.green : Colors.grey,
                         ),
                       ],
@@ -586,6 +579,13 @@ class _HomeScreenState extends State<HomeScreen> {
                     const SizedBox(height: 12),
                     Text('$totalDisplaySteps 걸음', style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 8),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('백그라운드 만보기'),
+                      subtitle: const Text('앱을 닫거나 화면이 꺼져도 걸음 수 측정'),
+                      value: _backgroundStepsEnabled,
+                      onChanged: _setBackgroundStepsEnabled,
+                    ),
                     Row(
                       children: [
                         Expanded(

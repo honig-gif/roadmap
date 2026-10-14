@@ -40,6 +40,7 @@ dependencies:
   intl: ^0.19.0
   geolocator: ^11.0.0 # 위치 추적 패키지
   permission_handler: ^11.3.1 # Android 런타임 권한 요청
+  flutter_foreground_task: ^11.0.3 # Android 백그라운드 서비스
   google_maps_flutter: ^2.6.0 # 구글 맵 플러그인
   google_sign_in: ^6.2.1 # 구글 로그인 패키지
 
