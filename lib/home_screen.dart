@@ -30,6 +30,7 @@ class _HomeScreenState extends State<HomeScreen> {
   String _activeDateKey = '';
   bool _pedometerInitialized = false;
   bool _backgroundStepsEnabled = true;
+  Completer<Map<String, dynamic>>? _routeStopCompleter;
 
   // 위치 로깅 관련 변수
   bool _isLoggingLocation = false;
@@ -262,6 +263,11 @@ class _HomeScreenState extends State<HomeScreen> {
             : DateTime.now().difference(_loggingStartTime!).inSeconds;
       });
     } else if (type == 'routeStopped') {
+      final stoppedData = Map<String, dynamic>.from(data);
+      final completer = _routeStopCompleter;
+      if (completer != null && !completer.isCompleted) {
+        completer.complete(stoppedData);
+      }
       if (!mounted) return;
       setState(() {
         _isLoggingLocation = false;
@@ -372,11 +378,9 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _startLocationLogging() async {
     final serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
-      if (mounted) { 
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('위치 서비스를 켜주세요.')),
-        );
-      }
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('위치 서비스를 켜주세요.')),
+      );
       return;
     }
 
@@ -386,11 +390,9 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     if (permission == LocationPermission.denied ||
         permission == LocationPermission.deniedForever) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('설정에서 위치 권한을 허용해주세요.')),
-        );
-      }
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('설정에서 위치 권한을 허용해주세요.')),
+      );
       return;
     }
 
@@ -422,24 +424,47 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _stopAndSaveLocationLogging() async {
     if (!_isLoggingLocation) return;
 
+    // Wait for the background isolate to stop GPS and return its final route.
+    final stopCompleter = Completer<Map<String, dynamic>>();
+    _routeStopCompleter = stopCompleter;
     FlutterForegroundTask.sendDataToTask({'command': 'stopRoute'});
     _timer?.cancel();
     _timer = null;
 
-    // Background task saves the latest route to local preferences before returning its final data.
-    await Future<void>.delayed(const Duration(milliseconds: 300));
-    final prefs = await SharedPreferences.getInstance();
-    final routeString = prefs.getString('temp_route');
-    if (routeString != null) {
-      try {
-        final latest = (jsonDecode(routeString) as List)
-            .map((e) => Map<String, dynamic>.from(e as Map)).toList();
-        _routePoints
-          ..clear()
-          ..addAll(latest);
-      } catch (_) {}
+    Map<String, dynamic>? stoppedData;
+    try {
+      stoppedData = await stopCompleter.future.timeout(const Duration(seconds: 8));
+    } on TimeoutException {
+      debugPrint('Background route stop acknowledgement timed out; using local route cache.');
+    } finally {
+      if (identical(_routeStopCompleter, stopCompleter)) {
+        _routeStopCompleter = null;
+      }
     }
-    _totalDistanceMeters = prefs.getDouble('temp_distance') ?? _totalDistanceMeters;
+
+    final prefs = await SharedPreferences.getInstance();
+    final returnedPoints = stoppedData?['points'];
+    if (returnedPoints is List) {
+      _routePoints
+        ..clear()
+        ..addAll(returnedPoints.map((e) => Map<String, dynamic>.from(e as Map)));
+    } else {
+      // Fallback to the persisted cache if the service acknowledgement was missed.
+      final routeString = prefs.getString('temp_route');
+      if (routeString != null) {
+        try {
+          final latest = (jsonDecode(routeString) as List)
+              .map((e) => Map<String, dynamic>.from(e as Map)).toList();
+          _routePoints
+            ..clear()
+            ..addAll(latest);
+        } catch (e) {
+          debugPrint('Could not decode cached route: $e');
+        }
+      }
+    }
+    _totalDistanceMeters = (stoppedData?['distance'] as num?)?.toDouble() ??
+        (prefs.getDouble('temp_distance') ?? _totalDistanceMeters);
 
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
@@ -458,7 +483,7 @@ class _HomeScreenState extends State<HomeScreen> {
       if (mounted) {
         setState(() => _isLoggingLocation = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('기록된 위치가 없습니다. GPS 신호를 확인한 후 다시 시도해 주세요.')),
+          const SnackBar(content: Text('기록된 위치가 없습니다. GPS 신호를 확인한 후 다시 시도해 주세요. 위치 권한과 GPS 상태를 확인해 주세요.')),
         );
       }
       return;
